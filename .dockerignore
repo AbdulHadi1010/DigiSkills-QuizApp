@@ -1,0 +1,11 @@
+# Keep the build context small and never bake dev state into an image.
+node_modules
+data
+.env
+.git
+*.log
+npm-debug.log*
+DEV-README.md
+start.sh
+start.ps1
+tools

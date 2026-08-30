@@ -1,0 +1,26 @@
+{
+  "name": "digiquiz-web-tier",
+  "version": "1.0.0",
+  "description": "DigiQuiz public web tier — validates and forwards /api/* to the private app tier, server-renders /admin. NO DATABASE CLIENT. Used by the Path A Docker image.",
+  "main": "web-server.js",
+  "private": true,
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "scripts": {
+    "start": "node web-server.js",
+    "syntax-check": "node --check web-server.js"
+  },
+  "dependencies": {
+    "express": "^4.21.2"
+  },
+  "comments": {
+    "one-dependency": "express is the only runtime dependency. Requests are forwarded with the global fetch() built into Node 18+, so there is no HTTP-client dependency either.",
+    "deliberately-absent": [
+      "mysql2 / any driver — this tier must never open a database connection, and web-tier/Dockerfile fails the build if one appears",
+      "jsonwebtoken — this tier holds no signing key and cannot verify tokens; it decodes the /admin token for a redirect decision only, and the app tier re-checks the signature",
+      "bcryptjs — password hashing happens in the app tier only"
+    ],
+    "node18": "Node 18+ is required for the built-in fetch() used by the forwarder."
+  }
+}

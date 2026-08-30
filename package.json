@@ -1,0 +1,32 @@
+{
+  "name": "digiquiz-dev",
+  "version": "1.0.0",
+  "description": "DigiQuiz — run the real 3-tier app on one machine, reachable from a phone on the same WiFi.",
+  "private": true,
+  "engines": {
+    "node": ">=22.5.0"
+  },
+  "scripts": {
+    "dev": "node tools/dev.js",
+    "dev:docker": "docker compose up --build",
+    "banner": "node tools/banner.js",
+    "ip": "node tools/lanip.js",
+    "qr": "node tools/qr.js",
+    "test:qr": "node tools/qr.test.js",
+    "verify": "node tools/verify-dev.js",
+    "syntax-check": "node --check app-tier/app-server.js && node --check app-tier/db.js && node --check web-tier/web-server.js && node --check tools/qr.js && node --check tools/dev.js",
+    "reset-db": "node -e \"require('fs').rmSync('data',{recursive:true,force:true});console.log('deleted data/ — the next npm run dev will re-seed from sql/digiquiz.sqlite.sql')\"",
+    "clean:docker": "docker compose down -v"
+  },
+  "dependencies": {
+    "bcryptjs": "^2.4.3",
+    "express": "^4.21.2",
+    "jsonwebtoken": "^9.0.2"
+  },
+  "comments": {
+    "engines": "Node 22.5.0 is the floor because Path B uses node:sqlite, which first shipped in 22.5.0. Node 18-22.4 can still run Path A (Docker), where the database is real MySQL in a container. If you are on an older Node and cannot upgrade, `npm install better-sqlite3` also works, but it compiles native code and needs a C++ toolchain.",
+    "install": "`npm install` here pulls three PURE-JAVASCRIPT packages. No node-gyp, no Python, no Visual Studio Build Tools. It is the only install step Path B needs.",
+    "no-mysql2": "mysql2 is intentionally absent from this manifest — Path B never talks to MySQL. Path A installs it inside the app-tier container from app-tier/package.json.",
+    "no-dev-dependencies": "There are none. The QR encoder, the LAN-IP detector, the process supervisor and the verification harness are all vendored in tools/ with zero dependencies, so this bundle works offline."
+  }
+}

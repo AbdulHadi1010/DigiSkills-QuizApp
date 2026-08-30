@@ -1,0 +1,25 @@
+{
+  "name": "digiquiz-app-tier",
+  "version": "1.0.0",
+  "description": "DigiQuiz private application tier — all business logic, the only tier that runs SQL. Used by the Path A Docker image.",
+  "main": "app-server.js",
+  "private": true,
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "scripts": {
+    "start": "node app-server.js",
+    "syntax-check": "node --check app-server.js && node --check db.js"
+  },
+  "dependencies": {
+    "bcryptjs": "^2.4.3",
+    "express": "^4.21.2",
+    "jsonwebtoken": "^9.0.2",
+    "mysql2": "^3.11.5"
+  },
+  "comments": {
+    "scope": "This manifest is for the Path A container image only. Path B installs its dependencies from the bundle's root package.json instead, and does not install mysql2 at all.",
+    "bcryptjs": "Pure JS — no C++ toolchain, so the image builds on any architecture.",
+    "mysql2": "Present here and ABSENT from web-tier/package.json. That asymmetry is the architecture, not an oversight; web-tier/Dockerfile fails the build if a driver ever appears there."
+  }
+}

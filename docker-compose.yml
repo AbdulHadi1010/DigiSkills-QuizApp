@@ -1,0 +1,148 @@
+# =============================================================================
+# DigiQuiz dev bundle — Path A (preferred)
+#
+#   docker compose up
+#
+# Three services, one per tier, mirroring the AWS topology:
+#
+#   db   mysql:8            <- stands in for RDS MySQL Multi-AZ
+#   app  node, port 4000    <- the private application tier (App EC2 ASG)
+#   web  node, port 8080    <- the public web tier (Web EC2 ASG behind the ALB)
+#
+# Then open http://localhost:8080 — or the LAN URL that ./start.ps1 / ./start.sh
+# prints, to use it from a phone.
+#
+# HOW THIS DIFFERS FROM AWS (all deliberate, all dev-only):
+#   * one MySQL container, not Multi-AZ RDS with a synchronous standby
+#   * web tier on 8080, not an ALB on 443 with ACM TLS. 8080 avoids needing
+#     root/Administrator to bind a low port.
+#   * secrets come from .env, not Secrets Manager + KMS
+#   * the web tier also serves index.html/app.js/style.css, standing in for
+#     S3 + CloudFront, so the dev stack has a single origin and no CORS hop
+#   * no NAT Gateway, no security groups — the `private` network below is the
+#     stand-in, and it is genuinely internal
+#
+# WHAT IS *NOT* RELAXED — these are the properties the project is about:
+#   * the web tier has no database driver and cannot reach the db service:
+#     `web` is not attached to the `private` network at all, so a connection to
+#     db:3306 from the web container fails at the network layer, exactly as the
+#     RDS security group would refuse it
+#   * is_correct never leaves the app tier
+#   * grading happens in the app tier
+#   * /admin is server-rendered by the web tier
+# =============================================================================
+
+name: digiquiz-dev
+
+services:
+  # ---------------------------------------------------------------------------
+  # db — stands in for RDS MySQL Multi-AZ
+  # ---------------------------------------------------------------------------
+  db:
+    image: mysql:8.0
+    container_name: digiquiz-db
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-devrootpw}
+      MYSQL_DATABASE: ${DB_NAME:-digiquiz}
+      MYSQL_USER: ${DB_USER:-digiquiz_app}
+      MYSQL_PASSWORD: ${DB_PASSWORD:-devapppw}
+    # Anything in /docker-entrypoint-initdb.d is executed, in filename order, the
+    # first time the data volume is empty. This is the real digiquiz.sql from the
+    # AWS build — same schema, same seed rows, same bcrypt hashes.
+    volumes:
+      - ./sql/digiquiz.sql:/docker-entrypoint-initdb.d/01-digiquiz.sql:ro
+      - digiquiz-db-data:/var/lib/mysql
+    networks:
+      - private
+    # No `ports:` block. The database is not published to the host, mirroring an
+    # RDS instance that is not publicly accessible. To poke at it manually:
+    #   docker compose exec db mysql -u digiquiz_app -p digiquiz
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "-u", "root", "-p${MYSQL_ROOT_PASSWORD:-devrootpw}"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 30s
+
+  # ---------------------------------------------------------------------------
+  # app — the private application tier. All business logic. The only tier
+  #       that runs SQL.
+  # ---------------------------------------------------------------------------
+  app:
+    build:
+      context: .
+      dockerfile: app-tier/Dockerfile
+    container_name: digiquiz-app
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      PORT: "4000"
+      DB_ENGINE: mysql
+      DB_HOST: db
+      DB_PORT: "3306"
+      DB_NAME: ${DB_NAME:-digiquiz}
+      DB_USER: ${DB_USER:-digiquiz_app}
+      DB_PASSWORD: ${DB_PASSWORD:-devapppw}
+      DB_POOL_SIZE: "10"
+      JWT_SECRET: ${JWT_SECRET:-dev-only-change-me-not-a-real-secret}
+      JWT_EXPIRES_IN: ${JWT_EXPIRES_IN:-2h}
+    depends_on:
+      db:
+        condition: service_healthy
+    networks:
+      - private      # can reach the database
+      - internal     # can be reached by the web tier
+    # Not published to the host either — on AWS this tier has no public IP.
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:4000/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+      start_period: 10s
+
+  # ---------------------------------------------------------------------------
+  # web — the public tier. Validates, forwards, server-renders /admin.
+  #       NOT on the `private` network, so it cannot reach db at all.
+  # ---------------------------------------------------------------------------
+  web:
+    build:
+      context: .
+      dockerfile: web-tier/Dockerfile
+    container_name: digiquiz-web
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      PORT: "8080"
+      APP_URL: http://app:4000
+      PUBLIC_API_BASE: ""
+      ALLOWED_ORIGIN: "*"
+      UPSTREAM_TIMEOUT_MS: "8000"
+      # DEV ONLY — stands in for S3 + CloudFront. Unset on AWS.
+      SERVE_STATIC_DIR: /opt/digiquiz/public
+    depends_on:
+      app:
+        condition: service_healthy
+    networks:
+      - internal
+    # 0.0.0.0 on the host, not 127.0.0.1, so a phone on the same WiFi can reach
+    # it. This is the one port the outside world sees.
+    ports:
+      - "0.0.0.0:${WEB_PORT:-8080}:8080"
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:8080/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+      start_period: 10s
+
+networks:
+  # db <-> app only. The web service is deliberately absent.
+  private:
+    internal: true
+  # web <-> app.
+  internal:
+    driver: bridge
+
+volumes:
+  digiquiz-db-data:

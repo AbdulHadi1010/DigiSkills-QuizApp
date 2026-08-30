@@ -1,0 +1,281 @@
+<!doctype html>
+<!--
+  DigiQuiz — WP2 — admin.html   (F8 admin console)
+  ============================================================================
+  This file is a SERVER-SIDE TEMPLATE. It is read from disk and rendered by the
+  Web EC2 tier in web-server.js (GET /admin). It is NOT uploaded to S3 and is
+  NOT served by CloudFront — that is the whole point of F8.
+
+  The web tier substitutes these placeholders before sending the HTML:
+      {{ADMIN_USERNAME}}  the admin's username, from the token
+      {{TOKEN}}           the bearer token to use for the create call
+      {{API_BASE}}        public API origin ('' means same-origin ALB)
+      {{RENDERED_AT}}     server render timestamp (proves server rendering)
+      {{INSTANCE_ID}}     which web-tier instance rendered it (proves the ASG)
+
+  The page still performs NO database work. Submitting the form issues
+      POST {{API_BASE}}/api/admin/quizzes   with   Authorization: Bearer <token>
+  which the web tier forwards to the app tier, which re-checks the admin role
+  from the verified token and does the inserts inside a transaction.
+  ============================================================================
+-->
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>DigiQuiz · Admin Console</title>
+  <style>
+    :root{
+      --bg:#0f172a; --panel:#1e293b; --panel-2:#243349; --line:#334155;
+      --ink:#e2e8f0; --muted:#94a3b8; --accent:#f59e0b; --accent-2:#fbbf24;
+      --ok:#34d399; --bad:#f87171; --radius:12px;
+    }
+    *{box-sizing:border-box}
+    body{margin:0;background:var(--bg);color:var(--ink);
+         font:16px/1.6 system-ui,-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif}
+    header{background:linear-gradient(135deg,#1e293b,#0f172a);border-bottom:1px solid var(--line);
+           padding:1.1rem 1.5rem;display:flex;flex-wrap:wrap;gap:1rem;align-items:center;
+           justify-content:space-between;position:sticky;top:0;z-index:5}
+    header h1{margin:0;font-size:1.15rem;letter-spacing:.02em}
+    header h1 span{color:var(--accent)}
+    .whoami{font-size:.82rem;color:var(--muted);text-align:right;line-height:1.35}
+    .whoami b{color:var(--ink)}
+    main{max-width:920px;margin:0 auto;padding:1.5rem}
+    .banner{background:var(--panel);border:1px solid var(--line);border-left:3px solid var(--accent);
+            border-radius:var(--radius);padding:.85rem 1rem;font-size:.87rem;color:var(--muted);
+            margin-bottom:1.5rem}
+    .card{background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);
+          padding:1.25rem;margin-bottom:1.25rem}
+    .card h2{margin:0 0 1rem;font-size:1rem;text-transform:uppercase;letter-spacing:.08em;
+             color:var(--muted)}
+    label{display:block;font-size:.75rem;text-transform:uppercase;letter-spacing:.07em;
+          color:var(--muted);margin:.85rem 0 .3rem}
+    input[type=text],textarea{width:100%;padding:.6rem .7rem;border-radius:8px;
+          border:1px solid var(--line);background:#0f172a;color:var(--ink);font:inherit}
+    textarea{resize:vertical;min-height:70px}
+    input[type=text]:focus,textarea:focus{outline:2px solid var(--accent);border-color:transparent}
+    .question{background:var(--panel-2);border:1px solid var(--line);border-radius:10px;
+              padding:1rem;margin-bottom:1rem}
+    .qhead{display:flex;justify-content:space-between;align-items:center;gap:1rem}
+    .qhead strong{font-size:.9rem;color:var(--accent-2)}
+    .opts{display:grid;gap:.5rem;margin-top:.75rem}
+    .opt{display:flex;align-items:center;gap:.6rem;background:#0f172a;border:1px solid var(--line);
+         border-radius:8px;padding:.45rem .6rem}
+    .opt .lab{width:1.6rem;height:1.6rem;flex:0 0 auto;display:grid;place-items:center;
+              border-radius:50%;background:var(--line);font-size:.8rem;font-weight:700}
+    .opt input[type=text]{border:0;background:transparent;padding:.25rem}
+    .opt input[type=radio]{width:1.05rem;height:1.05rem;accent-color:var(--ok);cursor:pointer}
+    .opt.correct{border-color:var(--ok)}
+    .opt.correct .lab{background:var(--ok);color:#062f22}
+    .hint{font-size:.75rem;color:var(--muted)}
+    button{font:inherit;border:0;border-radius:8px;padding:.6rem 1rem;cursor:pointer;font-weight:600}
+    .btn-primary{background:var(--accent);color:#0f172a}
+    .btn-primary:hover{background:var(--accent-2)}
+    .btn-ghost{background:transparent;color:var(--ink);border:1px solid var(--line)}
+    .btn-ghost:hover{border-color:var(--accent)}
+    .btn-danger{background:transparent;color:var(--bad);border:1px solid var(--line);
+                padding:.3rem .6rem;font-size:.8rem}
+    .actions{display:flex;gap:.75rem;flex-wrap:wrap;align-items:center;margin-top:1rem}
+    #status{margin-left:auto;font-size:.9rem}
+    #status.ok{color:var(--ok)} #status.bad{color:var(--bad)}
+    footer{max-width:920px;margin:0 auto;padding:0 1.5rem 3rem;color:var(--muted);font-size:.78rem}
+    code{background:#0f172a;padding:.1rem .35rem;border-radius:4px;color:var(--accent-2)}
+  </style>
+</head>
+<body>
+
+<header>
+  <h1>DigiQuiz <span>· Admin Console</span></h1>
+  <div class="whoami">
+    signed in as <b>{{ADMIN_USERNAME}}</b><br>
+    server-rendered by web instance <b>{{INSTANCE_ID}}</b> at {{RENDERED_AT}}
+  </div>
+</header>
+
+<main>
+  <div class="banner">
+    This page is rendered by the <b>Web EC2 tier</b>, not by S3/CloudFront. It holds no
+    database connection. Saving sends <code>POST /api/admin/quizzes</code> with your bearer
+    token; the web tier forwards it to the private app tier, which re-verifies your admin
+    role and writes the quiz, its questions and its options in a single transaction.
+  </div>
+
+  <form id="quizForm" novalidate>
+    <section class="card">
+      <h2>Quiz details</h2>
+      <label for="title">Title</label>
+      <input type="text" id="title" maxlength="150" placeholder="e.g. VPC Fundamentals" required>
+      <label for="description">Description</label>
+      <textarea id="description" maxlength="500" placeholder="One or two lines describing what this quiz covers."></textarea>
+    </section>
+
+    <section class="card">
+      <h2>Questions</h2>
+      <div id="questions"></div>
+      <div class="actions">
+        <button type="button" class="btn-ghost" id="addQuestion">+ Add question</button>
+        <span class="hint">Each question needs 4 options and exactly one marked correct.</span>
+      </div>
+    </section>
+
+    <div class="actions">
+      <button type="submit" class="btn-primary" id="saveBtn">Create quiz</button>
+      <button type="button" class="btn-ghost" id="resetBtn">Reset form</button>
+      <span id="status"></span>
+    </div>
+  </form>
+</main>
+
+<footer>
+  The correct-answer flag you set here is stored in <code>options.is_correct</code> in RDS and is
+  read only by the app tier during grading. It is never included in the quiz-read response, so it
+  never reaches a student's browser.
+</footer>
+
+<script>
+  // ---- injected by the web tier at render time -----------------------------
+  const API_BASE = "{{API_BASE}}";   // '' => same origin (the ALB)
+  const TOKEN    = "{{TOKEN}}";      // bearer token of the signed-in admin
+
+  const LABELS = ['A', 'B', 'C', 'D'];
+  const questionsEl = document.getElementById('questions');
+  const statusEl    = document.getElementById('status');
+  let seq = 0;
+
+  function setStatus(msg, kind) {
+    statusEl.textContent = msg || '';
+    statusEl.className = kind || '';
+  }
+
+  function addQuestion() {
+    const qid = ++seq;
+    const wrap = document.createElement('div');
+    wrap.className = 'question';
+    wrap.dataset.qid = qid;
+    wrap.innerHTML =
+      '<div class="qhead">' +
+        '<strong class="qnum"></strong>' +
+        '<button type="button" class="btn-danger remove">Remove</button>' +
+      '</div>' +
+      '<label>Question stem</label>' +
+      '<input type="text" class="stem" maxlength="500" placeholder="What does a NAT Gateway allow?">' +
+      '<div class="opts">' +
+        LABELS.map(function (L) {
+          return '<div class="opt">' +
+                   '<span class="lab">' + L + '</span>' +
+                   '<input type="text" class="otext" maxlength="300" placeholder="Option ' + L + '">' +
+                   '<input type="radio" name="correct-' + qid + '" value="' + L + '" ' +
+                          'title="Mark ' + L + ' as the correct answer">' +
+                 '</div>';
+        }).join('') +
+      '</div>';
+
+    wrap.querySelector('.remove').addEventListener('click', function () {
+      wrap.remove();
+      renumber();
+    });
+    wrap.querySelectorAll('input[type=radio]').forEach(function (radio) {
+      radio.addEventListener('change', function () {
+        wrap.querySelectorAll('.opt').forEach(function (o) { o.classList.remove('correct'); });
+        radio.closest('.opt').classList.add('correct');
+      });
+    });
+
+    questionsEl.appendChild(wrap);
+    renumber();
+    wrap.querySelector('.stem').focus();
+  }
+
+  function renumber() {
+    Array.prototype.forEach.call(questionsEl.children, function (q, i) {
+      q.querySelector('.qnum').textContent = 'Question ' + (i + 1);
+    });
+  }
+
+  /** Read the DOM into the exact payload shape the API contract expects. */
+  function collectPayload() {
+    const title = document.getElementById('title').value.trim();
+    const description = document.getElementById('description').value.trim();
+    if (!title) throw new Error('Quiz title is required.');
+
+    const nodes = Array.prototype.slice.call(questionsEl.children);
+    if (nodes.length === 0) throw new Error('Add at least one question.');
+
+    const questions = nodes.map(function (node, i) {
+      const stem = node.querySelector('.stem').value.trim();
+      if (!stem) throw new Error('Question ' + (i + 1) + ' has no text.');
+
+      const chosen = node.querySelector('input[type=radio]:checked');
+      if (!chosen) throw new Error('Question ' + (i + 1) + ' has no correct answer marked.');
+
+      const options = Array.prototype.map.call(node.querySelectorAll('.opt'), function (optEl, j) {
+        const text = optEl.querySelector('.otext').value.trim();
+        if (!text) throw new Error('Question ' + (i + 1) + ', option ' + LABELS[j] + ' is empty.');
+        return { label: LABELS[j], text: text, isCorrect: chosen.value === LABELS[j] };
+      });
+
+      return { stem: stem, options: options };
+    });
+
+    return { title: title, description: description || null, questions: questions };
+  }
+
+  document.getElementById('addQuestion').addEventListener('click', addQuestion);
+
+  document.getElementById('resetBtn').addEventListener('click', function () {
+    document.getElementById('quizForm').reset();
+    questionsEl.innerHTML = '';
+    seq = 0;
+    addQuestion();
+    setStatus('');
+  });
+
+  document.getElementById('quizForm').addEventListener('submit', async function (ev) {
+    ev.preventDefault();
+    const btn = document.getElementById('saveBtn');
+    setStatus('');
+
+    let payload;
+    try {
+      payload = collectPayload();
+    } catch (e) {
+      setStatus(e.message, 'bad');
+      return;
+    }
+
+    btn.disabled = true;
+    setStatus('Saving…');
+    try {
+      const res = await fetch(API_BASE + '/api/admin/quizzes', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': 'Bearer ' + TOKEN
+        },
+        body: JSON.stringify(payload)
+      });
+      const data = await res.json().catch(function () { return {}; });
+
+      if (res.status === 401) { setStatus('Session expired — sign in again.', 'bad');
+                                setTimeout(function(){ location.href = '/admin/login?reason=invalid_or_expired_token'; }, 1200);
+                                return; }
+      if (res.status === 403) { setStatus('Your account is not an admin.', 'bad'); return; }
+      if (!res.ok)            { setStatus(data.error || ('Failed (HTTP ' + res.status + ')'), 'bad'); return; }
+
+      setStatus('Quiz #' + data.id + ' created.', 'ok');
+      document.getElementById('quizForm').reset();
+      questionsEl.innerHTML = '';
+      seq = 0;
+      addQuestion();
+    } catch (e) {
+      setStatus('Network error — could not reach the API.', 'bad');
+    } finally {
+      btn.disabled = false;
+    }
+  });
+
+  // Start with one blank question so the page is usable immediately.
+  addQuestion();
+</script>
+</body>
+</html>

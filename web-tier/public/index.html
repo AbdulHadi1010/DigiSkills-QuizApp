@@ -1,0 +1,195 @@
+<!doctype html>
+<!--
+  DigiQuiz — WP1 — index.html
+  ============================================================================
+  STATIC STUDENT UI. This file, app.js and style.css are uploaded to the S3
+  bucket and served through CloudFront. There is no server behind them.
+
+  Every piece of data on screen arrives from the ALB API. In particular the
+  browser never receives options.is_correct, and there is not one line of
+  answer-checking logic in app.js — the score shown on the results screen is a
+  number computed by the private app tier and returned by /api/quizzes/:id/submit.
+
+  Set the API base URL at the top of app.js before uploading.
+  ============================================================================
+-->
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="DigiQuiz — practice AWS multiple-choice quizzes.">
+  <title>DigiQuiz</title>
+  <link rel="stylesheet" href="style.css">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><text y='26' font-size='26'>&#9997;</text></svg>">
+</head>
+<body>
+
+<!-- ======================= TOP BAR ======================= -->
+<header class="topbar">
+  <a class="brand" href="#" data-nav="quizzes">
+    <span class="brand-mark">DQ</span>
+    <span class="brand-text">Digi<b>Quiz</b></span>
+  </a>
+
+  <nav class="mainnav" id="mainnav" hidden>
+    <button class="navlink" data-nav="quizzes">Quizzes</button>
+    <button class="navlink" data-nav="attempts">My attempts</button>
+    <button class="navlink" id="adminLink" hidden>Admin</button>
+  </nav>
+
+  <div class="userbox" id="userbox" hidden>
+    <span class="avatar" id="avatar">?</span>
+    <span class="uname" id="uname">—</span>
+    <button class="btn btn-ghost btn-sm" id="logoutBtn">Sign out</button>
+  </div>
+</header>
+
+<!-- Global toast / error strip -->
+<div class="toast" id="toast" hidden></div>
+
+<main id="main">
+
+  <!-- ======================= AUTH ======================= -->
+  <section class="view" id="view-auth">
+    <div class="hero">
+      <h1>Test what you know about <span>AWS</span>.</h1>
+      <p class="lede">
+        Short multiple-choice quizzes on load balancing, monitoring and encryption.
+        Answers are graded on the server — so no peeking in DevTools.
+      </p>
+      <ul class="hero-points">
+        <li>Instant scoring</li>
+        <li>Track every attempt</li>
+        <li>Class leaderboards</li>
+      </ul>
+    </div>
+
+    <div class="card auth-card">
+      <div class="tabs" role="tablist">
+        <button class="tab is-active" id="tabLogin"    role="tab">Sign in</button>
+        <button class="tab"           id="tabRegister" role="tab">Create account</button>
+      </div>
+
+      <!-- F2 — login -->
+      <form id="loginForm" class="form">
+        <label for="loginUser">Username</label>
+        <input id="loginUser" type="text" autocomplete="username" required>
+        <label for="loginPass">Password</label>
+        <input id="loginPass" type="password" autocomplete="current-password" required>
+        <button class="btn btn-primary btn-block" type="submit">Sign in</button>
+        <p class="formerr" id="loginErr"></p>
+        <p class="hint">Demo: <code>student_demo</code> / <code>Passw0rd!</code></p>
+      </form>
+
+      <!-- F1 — register -->
+      <form id="registerForm" class="form" hidden>
+        <label for="regUser">Username</label>
+        <input id="regUser" type="text" autocomplete="username" required
+               minlength="3" maxlength="50" pattern="[A-Za-z0-9_.\-]+">
+        <label for="regPass">Password</label>
+        <input id="regPass" type="password" autocomplete="new-password" required minlength="8">
+        <label for="regPass2">Confirm password</label>
+        <input id="regPass2" type="password" autocomplete="new-password" required minlength="8">
+        <button class="btn btn-primary btn-block" type="submit">Create account</button>
+        <p class="formerr" id="regErr"></p>
+        <p class="hint">Letters, digits, <code>_ . -</code> · at least 8 characters.</p>
+      </form>
+    </div>
+  </section>
+
+  <!-- ======================= F3 QUIZ LIST ======================= -->
+  <section class="view" id="view-quizzes" hidden>
+    <div class="viewhead">
+      <h2>Available quizzes</h2>
+      <p class="sub">Pick one to begin. You can retake any quiz; your best score counts on the leaderboard.</p>
+    </div>
+    <div class="grid" id="quizGrid"></div>
+    <p class="empty" id="quizEmpty" hidden>No quizzes have been published yet.</p>
+  </section>
+
+  <!-- ======================= F4 TAKE QUIZ ======================= -->
+  <section class="view" id="view-take" hidden>
+    <div class="viewhead">
+      <button class="btn btn-ghost btn-sm" data-nav="quizzes">&larr; All quizzes</button>
+      <h2 id="takeTitle">Quiz</h2>
+      <p class="sub" id="takeDesc"></p>
+      <div class="progress"><div class="progress-bar" id="progressBar"></div></div>
+      <p class="sub" id="progressText">0 of 0 answered</p>
+    </div>
+
+    <form id="takeForm">
+      <div id="questionList"></div>
+      <div class="actions sticky-actions">
+        <button class="btn btn-primary" type="submit" id="submitQuizBtn">Submit answers</button>
+        <button class="btn btn-ghost" type="button" data-nav="quizzes">Cancel</button>
+        <span class="formerr" id="takeErr"></span>
+      </div>
+    </form>
+  </section>
+
+  <!-- ======================= F5 RESULTS ======================= -->
+  <section class="view" id="view-result" hidden>
+    <div class="card result-card">
+      <p class="result-kicker">Result</p>
+      <h2 id="resultQuiz">Quiz</h2>
+      <div class="score-ring" id="scoreRing">
+        <div class="score-inner">
+          <span class="score-num" id="resultScore">0</span>
+          <span class="score-den" id="resultTotal">/ 0</span>
+        </div>
+      </div>
+      <p class="result-pct" id="resultPct">0%</p>
+      <p class="result-msg" id="resultMsg"></p>
+      <div class="actions center">
+        <button class="btn btn-primary" id="resultLeaderboardBtn">See leaderboard</button>
+        <button class="btn btn-ghost" data-nav="attempts">My attempts</button>
+        <button class="btn btn-ghost" data-nav="quizzes">Another quiz</button>
+      </div>
+      <p class="hint center">
+        Your answers were graded on the server. The correct answers are never sent to this page.
+      </p>
+    </div>
+  </section>
+
+  <!-- ======================= F6 MY ATTEMPTS ======================= -->
+  <section class="view" id="view-attempts" hidden>
+    <div class="viewhead">
+      <h2>My attempts</h2>
+      <p class="sub">Every quiz you have submitted, most recent first.</p>
+    </div>
+    <div class="tablewrap">
+      <table class="table">
+        <thead>
+          <tr><th>Quiz</th><th class="num">Score</th><th class="num">Out of</th><th>Taken</th></tr>
+        </thead>
+        <tbody id="attemptsBody"></tbody>
+      </table>
+    </div>
+    <p class="empty" id="attemptsEmpty" hidden>You have not taken a quiz yet.</p>
+  </section>
+
+  <!-- ======================= F7 LEADERBOARD ======================= -->
+  <section class="view" id="view-leaderboard" hidden>
+    <div class="viewhead">
+      <button class="btn btn-ghost btn-sm" data-nav="quizzes">&larr; All quizzes</button>
+      <h2 id="lbTitle">Leaderboard</h2>
+      <p class="sub">Best score per student for this quiz.</p>
+    </div>
+    <ol class="leaderboard" id="leaderboardList"></ol>
+    <p class="empty" id="lbEmpty" hidden>Nobody has attempted this quiz yet. Be first.</p>
+  </section>
+
+  <!-- Loading overlay -->
+  <div class="loading" id="loading" hidden><div class="spinner"></div></div>
+
+</main>
+
+<footer class="sitefoot">
+  <span>DigiQuiz · 3-tier AWS capstone</span>
+  <span class="dot">·</span>
+  <span>static UI on S3 + CloudFront · API on ALB · logic on private EC2 · data in RDS Multi-AZ</span>
+</footer>
+
+<script src="app.js"></script>
+</body>
+</html>
