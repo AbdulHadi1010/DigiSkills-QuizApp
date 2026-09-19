@@ -4,6 +4,9 @@
    No frameworks, no external fonts, no network requests. One file.
    ========================================================================== */
 
+/* Ensure the HTML `hidden` attribute always wins over component display rules */
+[hidden] { display: none !important; }
+
 :root {
   --bg:        #0b1220;
   --bg-2:      #0f172a;
